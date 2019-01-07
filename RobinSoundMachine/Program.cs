@@ -45,12 +45,18 @@
             }
         }
 
-        static PortAudioHostApi PickBestApi(IEnumerable<PortAudioHostApi> supportedHostApis)
+        static PortAudioHostApi PickBestApi(StreamReader consoleInput, IEnumerable<PortAudioHostApi> supportedHostApis, CancellationToken cancellationToken)
         {
-            if (supportedHostApis.FirstOrDefault(x => x.HostApiType == PortAudioHostApiType.Wasapi) is PortAudioHostApi wasapi) return wasapi;
-            else if (supportedHostApis.FirstOrDefault(x => x.HostApiType == PortAudioHostApiType.DirectSound) is PortAudioHostApi directSound) return directSound;
-            else if (supportedHostApis.FirstOrDefault(x => x.HostApiType == PortAudioHostApiType.Mme) is PortAudioHostApi mme) return mme;
-            else return supportedHostApis.First();
+            Console.WriteLine("Choisir l'API de sortie audio:");
+            var audioApis = supportedHostApis.ToArray();
+
+            for (int i = 0; i < audioApis.Length; i++)
+            {
+                Console.WriteLine($"[{i.ToString("D2")}] - {audioApis[i].Name} - {audioApis[i].HostApiType}");
+            }
+            Console.Write("Taper le numéro choisi ->");
+            if (!ReadLine(consoleInput, cancellationToken, out string line)) throw new OperationCanceledException();
+            return audioApis[int.Parse(line)];
         }
 
         static bool ReadLine(StreamReader input, CancellationToken cancellationToken, out string line)
@@ -86,7 +92,7 @@
                 Console.WriteLine($"[{i.ToString("D2")}] - {outputDevices[i].Name}");
             }
 
-            Console.WriteLine("Taper le numéro choisi ->");
+            Console.Write("Taper le numéro choisi -> ");
             if (!ReadLine(consoleInput, cancellationToken, out string line)) throw new OperationCanceledException();
             return outputDevices[int.Parse(line)];
         }
@@ -104,10 +110,25 @@
                 };
 
                 using (var input = new StreamReader(Console.OpenStandardInput(), Encoding.Unicode))
-                using (var api = PickBestApi(PortAudioHostApi.SupportedHostApis))
+                using (var api = PickBestApi(input, PortAudioHostApi.SupportedHostApis, cts.Token))
                 using (var device = GetOutputDevice(input, api.Devices, cts.Token))
                 {
                     if (device.MaxOutputChannels <= 0) return;
+
+                    Console.Write("Saisir le code de langue voulu (défaut : fr-FR): ");
+                    if (!ReadLine(input, cts.Token, out string language)) return;
+                    if (string.IsNullOrWhiteSpace(language))
+                        language = "fr-FR";
+
+                    Console.WriteLine("Choisir le type de voix (femme/homme):");
+                    Console.WriteLine("[0] - Non spécifié");
+                    Console.WriteLine("[1] - Homme");
+                    Console.WriteLine("[2] - Femme");
+                    Console.WriteLine("[2] - Neutre");
+
+                    if (!ReadLine(input, cts.Token, out string voiceGenderStr) || !int.TryParse(voiceGenderStr, out int voiceGenderInt)) return;
+
+                    var voiceGender = (SsmlVoiceGender)voiceGenderInt;
 
                     Console.WriteLine($"Prêt à parler sur {device.Name}");
 
@@ -119,7 +140,7 @@
                         if (!ReadLine(input, cts.Token, out string line) || line is null) return;
 
                         Console.WriteLine("Récupération du son pour le texte : " + line);
-                        using (var audioStream = await TextToAudioStreamAsync(line, cts.Token))
+                        using (var audioStream = await TextToAudioStreamAsync(line, language, voiceGender, cts.Token))
                         {
                             Console.WriteLine("Son récupéré, lecture...");
 
@@ -145,7 +166,7 @@
                 }
             }
 
-            async Task<Stream> TextToAudioStreamAsync(string text, CancellationToken token)
+            async Task<Stream> TextToAudioStreamAsync(string text, string language, SsmlVoiceGender voiceGender, CancellationToken token)
             {
                 var request = new SynthesizeSpeechRequest
                 {
@@ -159,8 +180,8 @@
                     },
                     Voice = new VoiceSelectionParams
                     {
-                        LanguageCode = "fr-FR",
-                        SsmlGender = SsmlVoiceGender.Female,
+                        LanguageCode = language,
+                        SsmlGender = voiceGender,
                     },
                 };
 
