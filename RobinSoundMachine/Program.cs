@@ -14,11 +14,19 @@
     using Concentus.Oggfile;
     using System.Text;
     using System.Collections.Generic;
+    using Microsoft.Extensions.Hosting;
+    using Microsoft.AspNetCore.Hosting;
 
     class Program
     {
         const long waveFileHeaderSize = 44;
         readonly TextToSpeechClient ttsClient;
+
+        public static IHostBuilder CreateHostBuilder(string[] args) => Host.CreateDefaultBuilder(args)
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                webBuilder.UseStartup<Startup>();
+            });
 
         public Program()
         {
@@ -48,15 +56,18 @@
         static PortAudioHostApi PickBestApi(StreamReader consoleInput, IEnumerable<PortAudioHostApi> supportedHostApis, CancellationToken cancellationToken)
         {
             Console.WriteLine("Choisir l'API de sortie audio:");
-            var audioApis = supportedHostApis.ToArray();
+            var audioApis = supportedHostApis.Reverse().ToArray();
 
             for (int i = 0; i < audioApis.Length; i++)
-            {
                 Console.WriteLine($"[{i.ToString("D2")}] - {audioApis[i].Name} - {audioApis[i].HostApiType}");
-            }
+
+            return audioApis[0];
+
+            /*
             Console.Write("Taper le numéro choisi ->");
             if (!ReadLine(consoleInput, cancellationToken, out string line)) throw new OperationCanceledException();
             return audioApis[int.Parse(line)];
+            */
         }
 
         static bool ReadLine(StreamReader input, CancellationToken cancellationToken, out string line)
@@ -76,12 +87,12 @@
             }
         }
 
-        PortAudioDevice GetOutputDevice(StreamReader consoleInput, IEnumerable<PortAudioDevice> devices, CancellationToken cancellationToken)
+        static PortAudioDevice GetOutputDevice(StreamReader consoleInput, IEnumerable<PortAudioDevice> devices, CancellationToken cancellationToken)
         {
             var outputDevices = devices.Where(x => x.MaxOutputChannels >= 2).ToArray();
             if (outputDevices.Length == 0) throw new InvalidOperationException("Aucun périphérique de sortie détecté");
 
-            var plural = (outputDevices.Length > 1 ? "s" : "");
+            string plural = outputDevices.Length > 1 ? "s" : "";
             Console.WriteLine($"{outputDevices.Length} périphérique{plural} de sortie détecté{plural}");
             if (outputDevices.Length == 1) return outputDevices[0];
 
@@ -109,11 +120,11 @@
                     cts.Cancel();
                 };
 
-                using (var input = new StreamReader(Console.OpenStandardInput(), Encoding.Unicode))
-                using (var api = PickBestApi(input, PortAudioHostApi.SupportedHostApis, cts.Token))
-                using (var device = GetOutputDevice(input, api.Devices, cts.Token))
+                try
                 {
-                    if (device.MaxOutputChannels <= 0) return;
+                    using var input = new StreamReader(Console.OpenStandardInput(), Encoding.Unicode);
+                    using var api = PickBestApi(input, PortAudioHostApi.SupportedHostApis, cts.Token);
+                    using var device = GetOutputDevice(input, api.Devices, cts.Token);
 
                     Console.Write("Saisir le code de langue voulu (défaut : fr-FR): ");
                     if (!ReadLine(input, cts.Token, out string language)) return;
@@ -140,29 +151,29 @@
                         if (!ReadLine(input, cts.Token, out string line) || line is null) return;
 
                         Console.WriteLine("Récupération du son pour le texte : " + line);
-                        using (var audioStream = await TextToAudioStreamAsync(line, language, voiceGender, cts.Token))
-                        {
-                            Console.WriteLine("Son récupéré, lecture...");
+                        Console.WriteLine("Son récupéré, lecture...");
 
-                            using (var pump = new PortAudioDevicePump(
-                                device,
-                                2,
-                                new PortAudioSampleFormat(PortAudioSampleFormat.PortAudioNumberFormat.Signed, 2),
-                                device.DefaultLowOutputLatency,
-                                48000,
-                                (buffer, offset, count) => audioStream.Read(buffer, offset, count)))
-                            {
-                                using (var handle = new ManualResetEventSlim(false))
-                                {
-                                    pump.StreamFinished += (sender, eventArgs) => handle.Set();
-                                    pump.Start();
-                                    handle.Wait();
-                                }
-                            }
+                        using var audioStream = await TextToAudioStreamAsync(line, language, voiceGender, cts.Token);
+                        using var pump = new PortAudioDevicePump(
+                            device,
+                            2,
+                            new PortAudioSampleFormat(PortAudioSampleFormat.PortAudioNumberFormat.Signed, 2),
+                            device.DefaultLowOutputLatency,
+                            48000,
+                            (buffer, offset, count) => audioStream.Read(buffer, offset, count));
 
-                            Console.WriteLine("Lecture terminée");
-                        }
+                        using var handle = new ManualResetEventSlim(false);
+                        pump.StreamFinished += FinishedHandler;
+                        pump.Start();
+                        handle.Wait();
+                        pump.StreamFinished -= FinishedHandler;
+
+                        void FinishedHandler(object sender, EventArgs eventArgs) => handle.Set();
+                        Console.WriteLine("Lecture terminée");
                     }
+                }
+                catch (OperationCanceledException)
+                {
                 }
             }
 

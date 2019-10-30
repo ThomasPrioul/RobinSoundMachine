@@ -1,0 +1,20 @@
+﻿.mastcontainer {
+    padding: 20px;
+    margin-top: 20px;
+}
+
+/*.btn-primary {
+    color: #fff;
+}
+
+.btn-primary:hover {
+    color: #fff;
+}
+
+.btn-primary:focus {
+    color: #fff;
+}*/
+
+body {
+    background-color: #222;
+}

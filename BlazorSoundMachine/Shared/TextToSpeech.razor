@@ -1,0 +1,48 @@
+﻿@inject AudioService Audio
+@inject TextToSpeechService TTS
+@implements IDisposable
+
+<EditForm Model="@model">
+    <div class="form-group">
+        <label for="textarea1">Tape du texte ici et envoie ta commande Google Now!</label>
+        <div class="form-control-container">
+            <InputTextArea id="googleNowTextArea" class="form-control" placeholder="C'est rigolo ça" @bind-Value="@model.Text" />
+            <span class="form-control-state"></span>
+        </div>
+    </div>
+    <button class="btn btn-primary" disabled="@disabled" @onclick="Speak">@buttonContent</button>
+</EditForm>
+
+@code {
+    TTSModel model = new TTSModel();
+
+    bool disabled = false;
+
+    string buttonContent => disabled ? "Occupé" : "Parler";
+
+    protected override void OnInitialized()
+    {
+        Audio.Playing += OnPlaying;
+    }
+
+    public void Dispose()
+    {
+        Audio.Playing -= OnPlaying;
+    }
+
+    async void OnPlaying(object? sender, bool playing)
+    {
+        await InvokeAsync(() =>
+        {
+            disabled = playing;
+            StateHasChanged();
+        });
+    }
+
+    async void Speak()
+    {
+        if (string.IsNullOrWhiteSpace(model.Text)) return;
+        using var audioStream = await TTS.TextToAudioStreamAsync(model.Text);
+        await Audio.PlayAudioStream(audioStream);
+    }
+}
