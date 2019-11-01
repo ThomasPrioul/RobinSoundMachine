@@ -29,7 +29,7 @@ namespace BlazorSoundMachine.Services
                         .ToChannelCredentials()));
         }
 
-        public async Task<Stream> TextToAudioStreamAsync(string text, string language = "fr-FR", SsmlVoiceGender voiceGender = SsmlVoiceGender.Neutral, CancellationToken token = default)
+        public async Task<Stream> TextToAudioStreamAsync(string text, string language = "fr-FR", SsmlVoiceGender voiceGender = SsmlVoiceGender.Male, CancellationToken token = default)
         {
             var request = new SynthesizeSpeechRequest
             {
